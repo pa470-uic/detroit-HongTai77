@@ -1,0 +1,204 @@
+---
+title: "Detroit-Part 1"
+author: "Hong Tai"
+date: "2/13/2022"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+```
+
+```{r}
+options(knitr.duplicate.label = "allow")
+```
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(tidyverse)
+library(DBI)
+library(dbplyr)
+library(sf)
+```
+
+
+Load data # database sales
+```{r}
+con <- DBI::dbConnect(RSQLite::SQLite(), "detroit.sqlite")
+# sales tbl
+dplyr::tbl(con, 'sales')
+# convert to tibble
+sales <- dplyr::tbl(con, 'sales') %>% dplyr::collect()
+# sql query
+dplyr::tbl(con, 'sales') %>% count(year(sale_date))
+dplyr::tbl(con, 'sales') %>% count(year(sale_date)) %>% show_query()
+# add new clo year in sales
+sales$year <- year(sales$sale_date)
+```
+Load data # database assessments
+```{r}
+# assessments tbl
+dplyr::tbl(con, 'assessments')
+# convert to tibble
+assessments <- dplyr::tbl(con, 'assessments') %>% dplyr::collect()
+# sql query
+dplyr::tbl(con, 'assessments') %>% count(year)
+dplyr::tbl(con, 'assessments') %>% count(year) %>% show_query()
+```
+Load data # database parcels
+```{r}
+# parcels tbl
+dplyr::tbl(con, 'parcels')
+# convert to tibble
+parcels <- dplyr::tbl(con, 'parcels') %>% dplyr::collect()
+# sql query
+dplyr::tbl(con, 'parcels') %>% count(year(sale_date))
+dplyr::tbl(con, 'parcels') %>% count(year(sale_date)) %>% show_query()
+```
+Load data # database parcels_historic
+```{r}
+# parcels tbl
+dplyr::tbl(con, 'parcels_historic')
+# convert to tibble
+parcels_historic <- dplyr::tbl(con, 'parcels_historic') %>% dplyr::collect()
+# sql query
+dplyr::tbl(con, 'parcels_historic') %>% count(year(SALEDATE))
+dplyr::tbl(con, 'parcels_historic') %>% count(year(SALEDATE)) %>% show_query()
+```
+Load data # database blight
+```{r}
+# parcels tbl
+dplyr::tbl(con, 'blight')
+# convert to tibble
+blight <- dplyr::tbl(con, 'blight') %>% dplyr::collect()
+```
+Load data # database foreclosures
+```{r}
+# parcels tbl
+dplyr::tbl(con, 'foreclosures')
+# convert to tibble
+foreclosures <- dplyr::tbl(con, 'foreclosures') %>% dplyr::collect()
+```
+Section A - trend of the mean in sale_price
+
+We can see that the min in sale_price is 0, this shows that there are outlier values in the data.
+We can see that the sale price of Detroit houses was relatively low from 2012 to 2015, and it was on a downward trend. However, since 2016, the sale price of houses has gradually increased, and it will reach the peak of the sale price of houses in 2020.
+```{r}
+# see the mean, min, max, median of sales_trend
+sales_trend <- sales %>%
+  group_by(year) %>%
+  summarise(mean(sale_price), min(sale_price), max(sale_price), median(sale_price))
+# change the database to dataframe
+sales_trend <- data.frame(sales_trend)
+# see the trend of the mean in sale_price
+ggplot(sales_trend, aes(x=year, y=mean.sale_price.)) +
+  geom_line() +
+  geom_point()
+```
+Section A - trend of the mean in ASSESSEDCALUE
+
+We can see that the min in ASSESSEDVALUE is 0, this shows that there are outlier values in the data.
+We can see from the trend plot that the estimated value of Detroit houses has been on a downward trend from 2012 to mid-2017. From mid-2017 to early 2020, it showed a slow growth trend. From the beginning of 2020 to the beginning of 2021, there was a downward trend. However, from the end of 2021 to 2022, there will be a sharp increase.
+```{r}
+# see the mean, min, max, median of assessments_trend
+assessments_trend <- assessments %>%
+  group_by(year) %>%
+  summarise(mean(ASSESSEDVALUE), min(ASSESSEDVALUE), max(ASSESSEDVALUE), median(ASSESSEDVALUE))
+# change the database to dataframe
+assessments_trend <- data.frame(assessments_trend)
+# see the trend of the mean in ASSESSEDVALUE
+ggplot(assessments_trend, aes(x=year, y=mean.ASSESSEDVALUE.)) +
+  geom_line() +
+  geom_point()
+```
+Section A - trend of the average value of the estimated value of the house minus the sale price
+
+As can be seen from the trend plot, the average value of the assessed value of the house minus the average price of the house for sale showed a gradual downward trend from 2012 to 2020. This means that the sale price of Detroit houses is higher than the valuation of the houses, and the impact of outlier values on the results cannot be ruled out. Combined with the article, what may happen is that the owners of low-value properties pay too much tax, while the owners of high-value properties pay too little tax.
+```{r}
+# merge database sales and database assessments
+df <- merge(sales, assessments, by.x = c("parcel_num", "year"), by.y = c("PARCELNO", "year"))
+# the estimated value of the house minus the sale price
+df$difference <- df$ASSESSEDVALUE - df$sale_price
+# see the mean of difference_trend
+difference_trend <- df %>%
+  group_by(year) %>%
+  summarise(mean(difference))
+# change the database to dataframe
+difference_trend <- data.frame(difference_trend)
+# see the trend of the mean in difference
+ggplot(difference_trend, aes(x=year, y=mean.difference.)) +
+  geom_line() +
+  geom_point()
+```
+
+Section B
+
+The report shows that in Detroit, 48% of the lowest-value houses are overvalued and 5% of the highest-value houses are overvalued. But in my analysis above, the average property price is higher than the average property valuation. If it is as described in the report, then the price of real estate in Detroit is also unreasonable.
+```{r}
+devtools::install_github("cmf-uchicago/cmfproperty")
+
+ratios <-
+  cmfproperty::reformat_data(
+    df,
+    sale_col = "sale_price",
+    assessment_col = "ASSESSEDVALUE",
+    sale_year_col = "year",
+  )
+
+cmfproperty::make_report(ratios, 
+                         jurisdiction_name = "Detroit",
+                         output_dir = "~/Desktop/PA470/Detroit-Part 1/database/") 
+```
+
+Section C
+
+From the regression model, we can analyze that there is almost no statistical correlation between the year and house sales, because the p-value is greater than 0.05.
+```{r}
+# Explore trends and relationships with property sales using simple regressions
+# create new database that just includs year and property sales
+sales_total <- dplyr::tbl(con, 'sales') %>% count(year(sale_date)) %>%
+  collect()
+# change the database to dataframe
+sales_total <- data.frame(sales_total)
+# simple regression
+lm1 <- lm(n ~ year.sale_date., data = sales_total)
+summary(lm1)
+```
+
+We can see from the figure that the sales of houses continued to increase from 2012 to 2014, and reached the highest value in 2014. From 2014 to the beginning of 2016, home sales showed a decreasing trend. From 2016 to mid-2019, home sales showed a slow growth trend. From mid-2019 to 2020, home sales showed a sharp downward trend.
+```{r}
+# make a plot
+ggplot(sales_total, aes(x=year.sale_date., y=n)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth(method = lm)
+```
+
+Section D
+
+From the regression model, we can analyze that there is a slight statistical correlation between years and prophecies, because the p-value is greater than 0.05 but close to 0.05.
+```{r}
+# Explore trends and relationships with foreclosures using simple regressions
+# create new database that just includs year and foreclosures
+foreclosures_total <- colSums(foreclosures[, -c(1 , 2)], na.rm = T)
+# change the database to dataframe
+foreclosures_total <- data.frame(foreclosures_total)
+# change the variable year to numeric
+foreclosures_total$year <- as.numeric(row.names(foreclosures_total))
+# simple regression
+lm2 <- lm(foreclosures_total ~ year, data = foreclosures_total)
+summary(lm2)
+```
+
+We can see from the figure that from 2012 to 2015, prophecies showed a gradual growth trend. Although they have fluctuated from time to time, the overall trend is upward. After 2015, it showed a sharp downward trend.
+```{r}
+# make a plot
+ggplot(foreclosures_total, aes(x=year, y=foreclosures_total)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth(method = lm)
+```
